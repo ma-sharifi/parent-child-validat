@@ -8,19 +8,19 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * The <b>parent</b>. It owns <em>all</em> the fields; the children add no state,
- * only the rules that apply to those inherited fields.
+ * The <b>parent</b>. Treat it as a <b>3rd-party type you cannot modify</b>: it
+ * owns <em>all</em> the fields and already carries its own validation (here,
+ * {@code @NotNull} on {@code type}). You cannot add child-specific rules to it,
+ * nor re-annotate/override its getters in a subclass.
  *
- * <p>Because a field cannot be re-annotated in a subclass, each child instead
- * <b>overrides the getter</b> and puts its constraint there — see
- * {@link Collateral} and {@link Promise}. When you validate a child instance,
- * Hibernate Validator collects the constraints from the whole hierarchy, so the
- * parent's default rules (e.g. {@code @NotNull type}) and the child's
- * getter rules all fire together.</p>
+ * <p>So the children — {@link Collateral} and {@link Promise} — add their rules
+ * with a <b>class-level custom constraint</b> instead
+ * ({@code @GuaranteeChildRules}). See those classes and their validators.</p>
  *
- * <p>The Jackson annotations make the JSON {@code "type"} field select which
- * concrete child to deserialize into, so a controller can accept a
- * {@code Guarantee} and Spring validates the actual subtype's rules.</p>
+ * <p>(The Jackson annotations here are only to keep this demo runnable — they let
+ * the JSON {@code "type"} pick the concrete child to deserialize. For a genuine
+ * 3rd-party parent you'd configure polymorphism externally, e.g. with a Jackson
+ * mix-in or {@code registerSubtypes}, rather than editing the class.)</p>
  */
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,

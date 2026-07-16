@@ -21,10 +21,11 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The parent {@link Guarantee} holds every field; each child constrains the
- * inherited fields by overriding their getters. Validating a child instance
- * therefore applies the child's rules — proven here by validating
- * {@link Collateral} and {@link Promise} directly. No groups, no provider.
+ * The parent {@link Guarantee} (a stand-in for an unmodifiable 3rd-party type)
+ * holds every field. Each child applies its rules with a class-level custom
+ * constraint ({@code @GuaranteeChildRules}) — no getter overrides, no groups.
+ * Validating a {@link Collateral} or {@link Promise} directly proves the child's
+ * validator runs and reports against the right property paths.
  */
 class GuaranteeValidationTest {
 
