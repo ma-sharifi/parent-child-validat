@@ -1,54 +1,64 @@
-# Parent/Child validation in Spring Boot with `@GroupSequenceProvider`
+# Parent/Child validation in Spring Boot
 
-A tiny, runnable Spring Boot project that demonstrates how **one DTO** can enforce
-**two different sets of rules** — one for "parent" objects and one for "child"
-objects — without splitting into separate classes and without controllers ever
-passing `@Validated(SomeGroup.class)`.
+A tiny, runnable Spring Boot project showing how a "parent" shape and a "child"
+shape can enforce **opposite rules on the same fields**. It demonstrates the
+**two** standard ways to do this, one per example:
 
-The engine behind it is Hibernate Validator's
-[`@GroupSequenceProvider`](https://docs.jboss.org/hibernate/validator/8.0/reference/en-US/html_single/#section-default-group-class):
-you put opposite constraints (`@NotNull` and `@Null`) on the same field, each
-bound to a different validation group, and a provider decides at runtime — based
-on the object's own state — which group is active.
+1. **Guarantee → Collateral / Promise** — *inheritance*. A parent class holds
+   all the fields; each child subclass constrains the inherited fields by
+   overriding their getters. Validation is applied to the children.
+2. **CoverType → parent / child** — *single DTO + `@GroupSequenceProvider`*. One
+   class, opposite constraints on the same field bound to different validation
+   groups, and a provider picks the active group at runtime from the object's state.
 
-There are **two worked examples** in this repo:
+Neither controller passes `@Validated(SomeGroup.class)` — both use plain `@Valid`.
 
-1. **Guarantee → Collateral / Promise** (`GuaranteeDto`) — the clearest one. Two
-   named children of a loan guarantee, discriminated by an enum `type`.
-2. **CoverType → parent / child** (`CoverTypeDto`) — the original, discriminated
-   by a boolean flag.
+## Example 1 — Guarantee: a parent class with two children (inheritance)
 
-Both use the identical `@GroupSequenceProvider` mechanism.
+`Guarantee` is an **abstract parent that owns every field**. `Collateral` and
+`Promise` are its **children**; they add no state, they only apply rules to the
+inherited fields. A loan guarantee is one of the two, chosen by its `type`:
 
-## Example 1 — Guarantee: Collateral vs. Promise
-
-A loan **Guarantee** is one of two children, chosen by its `type`:
-
-| Field | `COLLATERAL` (child) | `PROMISE` (child) |
+| Field (declared on parent `Guarantee`) | `Collateral` (child) | `Promise` (child) |
 |-------|----------------------|-------------------|
 | `type` | required | required |
 | `guarantorName` | **must be null** | **required** |
 | `assets` (list) | **required, non-empty** | **must be null** |
 | `borrowerRating` | **required** | **must be null** |
 
+### Why the getter override?
+
+A field cannot be re-annotated in a subclass, so you cannot put `@Null` on an
+*inherited field*. The idiom is to **override the getter in the child and put the
+constraint there** — Hibernate Validator collects constraints from the whole type
+hierarchy, so validating a child applies the parent's default rules plus the
+child's getter rules.
+
 ```
-                 GuaranteeDto (single class)
-                 ├─ type            @NotNull                    (always)
-                 ├─ guarantorName   @Null(CollateralChecks)     @NotBlank(PromiseChecks)
-                 ├─ assets          @NotEmpty(CollateralChecks) @Null(PromiseChecks)
-                 └─ borrowerRating  @NotNull(CollateralChecks)  @Null(PromiseChecks)
-                              │
-        GuaranteeSequenceProvider.getValidationGroups(dto)
-                              │
-        ┌─────────────────────┴─────────────────────┐
-   type == COLLATERAL                          type == PROMISE
-   → [GuaranteeDto, CollateralChecks]          → [GuaranteeDto, PromiseChecks]
-   → assets & borrowerRating REQUIRED          → guarantorName REQUIRED
-   → guarantorName must be NULL                → assets & borrowerRating must be NULL
+        Guarantee (abstract parent — owns all fields)
+        ├─ type            @NotNull                        (default, both children)
+        ├─ guarantorName   (no constraint here)
+        ├─ assets          (no constraint here)
+        └─ borrowerRating  (no constraint here)
+                 ▲                              ▲
+     extends     │                              │   extends
+   ┌─────────────┴───────────┐      ┌───────────┴──────────────┐
+   Collateral (child)               Promise (child)
+   @Override getGuarantorName()     @Override getGuarantorName()
+        @Null                            @NotBlank
+   @Override getAssets()            @Override getAssets()
+        @Valid @NotEmpty                 @Null
+   @Override getBorrowerRating()    @Override getBorrowerRating()
+        @NotNull                         @Null
 ```
 
-`assets` is a `List<AssetDto>` carrying a cascaded `@Valid`, so each pledged
-asset's own constraints are checked too — but only for a collateral, since a
+Jackson's `@JsonTypeInfo` / `@JsonSubTypes` on the parent make the JSON `"type"`
+select which concrete child to deserialize into. The controller accepts a
+`Guarantee`, and Spring's `@Valid` validates whichever subtype actually arrived —
+so the child's rules fire with no group juggling.
+
+`Collateral.getAssets()` carries a cascaded `@Valid`, so each pledged
+`AssetDto`'s own constraints are checked too — but only for a collateral, since a
 promise's list must be null. Try it:
 
 ```bash
@@ -69,9 +79,13 @@ curl -s -XPOST localhost:8080/guarantees -H 'Content-Type: application/json' -d 
   "borrowerRating":"BBB"}'
 ```
 
-## Example 2 — CoverType parent/child
+## Example 2 — CoverType parent/child (single DTO + `@GroupSequenceProvider`)
 
-## The idea in one picture
+The other route: keep **one class** and let a
+[`@GroupSequenceProvider`](https://docs.jboss.org/hibernate/validator/8.0/reference/en-US/html_single/#section-default-group-class)
+decide which validation group applies from the object's own state. Put opposite
+constraints (`@NotNull` and `@Null`) on the same field, each bound to a different
+group.
 
 ```
                  CoverTypeDto (single class)
@@ -96,17 +110,20 @@ inherits its limit, so it must *not* carry one of its own.
 
 | File | Role |
 |------|------|
-| `validation/CollateralChecks.java`, `validation/PromiseChecks.java` | Marker groups for the Guarantee example. |
-| `dto/GuaranteeDto.java`, `dto/GuaranteeType.java`, `dto/AssetDto.java` | The Guarantee DTO (`@GroupSequenceProvider(...)`), its discriminator enum, and the nested asset (cascaded `@Valid`). |
-| `validation/GuaranteeSequenceProvider.java` | Reads `type` and activates `CollateralChecks` or `PromiseChecks`. |
-| `web/GuaranteeController.java` | Plain `@Valid` — no group named. |
-| `validation/ParentChecks.java`, `validation/ChildChecks.java` | Marker groups for the CoverType example. |
-| `dto/CoverTypeDto.java` | The CoverType DTO. Same fields carry opposite constraints bound to different groups. |
+| **Example 1 (inheritance)** | |
+| `dto/Guarantee.java` | Abstract **parent** — owns all the fields; Jackson polymorphism config; `@NotNull type`. |
+| `dto/Collateral.java`, `dto/Promise.java` | **Children** — no new fields; constrain inherited fields via overridden getters. |
+| `dto/GuaranteeType.java`, `dto/AssetDto.java` | Discriminator enum, and the nested asset (cascaded `@Valid`). |
+| `web/GuaranteeController.java` | Accepts the parent `Guarantee`; plain `@Valid` validates the deserialized subtype. |
+| **Example 2 (`@GroupSequenceProvider`)** | |
+| `validation/ParentChecks.java`, `validation/ChildChecks.java` | Marker groups. |
+| `dto/CoverTypeDto.java` | Single DTO; same fields carry opposite constraints bound to different groups. |
 | `validation/CoverTypeSequenceProvider.java` | Reads the boolean flag and returns the groups to activate. |
 | `web/CoverTypeController.java` | Plain `@Valid` — no group named. |
-| `web/ValidationExceptionHandler.java` | Turns a failed `@Valid` into a clean 400 JSON body (shared by both). |
+| **Shared** | |
+| `web/ValidationExceptionHandler.java` | Turns a failed `@Valid` into a clean 400 JSON body. |
 
-## The provider — the whole trick
+### Example 2's provider — the whole trick
 
 ```java
 public class CoverTypeSequenceProvider implements DefaultGroupSequenceProvider<CoverTypeDto> {
@@ -122,7 +139,7 @@ public class CoverTypeSequenceProvider implements DefaultGroupSequenceProvider<C
 }
 ```
 
-## Two gotchas
+### Two gotchas (provider approach only)
 
 1. **You must include the DTO's own class** (`CoverTypeDto.class`) in the returned
    list. If you forget it, the default/ungrouped constraints — like `@NotBlank`
@@ -134,7 +151,7 @@ public class CoverTypeSequenceProvider implements DefaultGroupSequenceProvider<C
 ## Run it
 
 ```bash
-mvn test          # runs the 11 tests that prove both parent and child paths
+mvn test          # runs 28 tests proving both children of both examples
 mvn spring-boot:run
 ```
 
@@ -154,14 +171,18 @@ curl -s -XPOST localhost:8080/cover-types -H 'Content-Type: application/json' \
   -d '{"child":true,"name":"Motor - Third Party","parentId":42,"coverageLimit":5000}'
 ```
 
-## When you *don't* need the provider
+## Which approach to choose
 
-If parent and child are genuinely **separate classes**, you can't put `@Null` on
-an *inherited* field, so the provider approach is the simplest route to keep one
-type. If instead your two shapes justify two classes with no shared field-level
-contradictions, plain per-class constraints (or per-endpoint
-`@Validated(group)`) may be enough — reach for `@GroupSequenceProvider` when the
-*same field* needs opposite rules depending on the object's state.
+| | Example 1 — inheritance | Example 2 — `@GroupSequenceProvider` |
+|-|-------------------------|--------------------------------------|
+| Classes | one parent + one class per child | one class total |
+| Where the rules live | overridden getters in each child | grouped constraints + a provider |
+| You must remember | you can't annotate an *inherited field* → constrain the **getter** | include the DTO's own class in the group list; null-check `dto` |
+| Fits when | children are real, distinct types you also model elsewhere | it's really one payload with state-dependent rules |
+| Nested `@Valid` cascade | on the child getter (fires only for that child) | on the field (fires when its group is active) |
+
+Both keep controllers, services, and cascaded `@Valid` on nested objects "dumb":
+plain `@Valid`, no `@Validated(group)`.
 
 ## Requirements
 

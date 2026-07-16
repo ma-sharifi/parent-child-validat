@@ -11,7 +11,7 @@ import jakarta.validation.constraints.Positive;
  *
  * <p>These constraints have no group, so they belong to the default group. They
  * fire only when the list is actually validated — which, thanks to the cascaded
- * {@code @Valid} on {@code GuaranteeDto.assets}, happens for a collateral but
+ * {@code @Valid} on {@code Collateral.getAssets()}, happens for a collateral but
  * never for a promise (whose list must be null).</p>
  */
 public class AssetDto {

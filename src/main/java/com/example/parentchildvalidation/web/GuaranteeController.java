@@ -1,6 +1,6 @@
 package com.example.parentchildvalidation.web;
 
-import com.example.parentchildvalidation.dto.GuaranteeDto;
+import com.example.parentchildvalidation.dto.Guarantee;
 
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -11,16 +11,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Same story as {@code CoverTypeController}: plain {@code @Valid}, no
- * {@code @Validated(group)}. A COLLATERAL payload and a PROMISE payload hit the
- * same method and get different rules, chosen by {@code GuaranteeSequenceProvider}.
+ * The controller accepts the parent type {@link Guarantee}. Jackson reads the
+ * JSON {@code "type"} and deserializes into {@code Collateral} or {@code Promise},
+ * then plain {@code @Valid} validates whichever subtype arrived — so the child's
+ * own getter constraints fire. No groups, no {@code @Validated} anywhere.
  */
 @RestController
 @RequestMapping("/guarantees")
 public class GuaranteeController {
 
     @PostMapping
-    public ResponseEntity<GuaranteeDto> create(@Valid @RequestBody GuaranteeDto dto) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    public ResponseEntity<Guarantee> create(@Valid @RequestBody Guarantee guarantee) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(guarantee);
     }
 }

@@ -1,7 +1,7 @@
 package com.example.parentchildvalidation.dto;
 
 /**
- * The discriminator that decides which child a {@code GuaranteeDto} is.
+ * The discriminator that decides which child of {@code Guarantee} an instance is.
  *
  * <ul>
  *   <li>{@link #COLLATERAL} — a secured guarantee backed by real assets.</li>

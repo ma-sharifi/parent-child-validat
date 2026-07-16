@@ -6,8 +6,9 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.example.parentchildvalidation.dto.AssetDto;
-import com.example.parentchildvalidation.dto.GuaranteeDto;
-import com.example.parentchildvalidation.dto.GuaranteeType;
+import com.example.parentchildvalidation.dto.Collateral;
+import com.example.parentchildvalidation.dto.Guarantee;
+import com.example.parentchildvalidation.dto.Promise;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
@@ -20,8 +21,10 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Proves the two children of a guarantee enforce opposite rules from one DTO,
- * driven only by {@code type}. Every call is plain {@code validator.validate(dto)}.
+ * The parent {@link Guarantee} holds every field; each child constrains the
+ * inherited fields by overriding their getters. Validating a child instance
+ * therefore applies the child's rules — proven here by validating
+ * {@link Collateral} and {@link Promise} directly. No groups, no provider.
  */
 class GuaranteeValidationTest {
 
@@ -39,8 +42,8 @@ class GuaranteeValidationTest {
         factory.close();
     }
 
-    private Set<String> violationPaths(GuaranteeDto dto) {
-        return validator.validate(dto).stream()
+    private Set<String> violationPaths(Guarantee guarantee) {
+        return validator.validate(guarantee).stream()
                 .map(ConstraintViolation::getPropertyPath)
                 .map(Object::toString)
                 .collect(Collectors.toSet());
@@ -50,81 +53,79 @@ class GuaranteeValidationTest {
         return List.of(new AssetDto("Warehouse #4", new BigDecimal("250000")));
     }
 
-    // ----- COLLATERAL: must HAVE assets + borrowerRating -----
+    // ----- COLLATERAL: guarantorName null; assets + borrowerRating required -----
 
     @Test
     void validCollateral_hasNoViolations() {
-        // A collateral leans on assets, so guarantorName must be null.
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, oneAsset(), "BBB");
+        Guarantee collateral = new Collateral(null, oneAsset(), "BBB");
         assertThat(violationPaths(collateral)).isEmpty();
     }
 
     @Test
     void collateralWithGuarantorName_isRejected() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "Acme Ltd", oneAsset(), "BBB");
+        Guarantee collateral = new Collateral("Acme Ltd", oneAsset(), "BBB");
         assertThat(violationPaths(collateral)).contains("guarantorName");
     }
 
     @Test
     void collateralWithoutAssets_isRejected() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, null, "BBB");
+        Guarantee collateral = new Collateral(null, null, "BBB");
         assertThat(violationPaths(collateral)).contains("assets");
     }
 
     @Test
     void collateralWithEmptyAssets_isRejected() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, List.of(), "BBB");
+        Guarantee collateral = new Collateral(null, List.of(), "BBB");
         assertThat(violationPaths(collateral)).contains("assets");
     }
 
     @Test
     void collateralWithoutBorrowerRating_isRejected() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, oneAsset(), null);
+        Guarantee collateral = new Collateral(null, oneAsset(), null);
         assertThat(violationPaths(collateral)).contains("borrowerRating");
     }
 
     @Test
     void collateralWithInvalidNestedAsset_cascadesAndIsRejected() {
-        // Blank description + non-positive value: cascaded @Valid must catch it.
+        // Blank description + non-positive value: cascaded @Valid on the child's
+        // overridden getAssets() must catch it.
         List<AssetDto> bad = List.of(new AssetDto("  ", new BigDecimal("-1")));
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, bad, "BBB");
-        Set<String> paths = violationPaths(collateral);
-        assertThat(paths).contains("assets[0].description", "assets[0].estimatedValue");
+        Guarantee collateral = new Collateral(null, bad, "BBB");
+        assertThat(violationPaths(collateral)).contains("assets[0].description", "assets[0].estimatedValue");
     }
 
-    // ----- PROMISE: must have NEITHER (both null) -----
+    // ----- PROMISE: guarantorName required; assets + borrowerRating null -----
 
     @Test
     void validPromise_hasNoViolations() {
-        GuaranteeDto promise = new GuaranteeDto(GuaranteeType.PROMISE, "Jane Doe", null, null);
+        Guarantee promise = new Promise("Jane Doe", null, null);
         assertThat(violationPaths(promise)).isEmpty();
     }
 
     @Test
+    void promiseWithoutGuarantorName_isRejected() {
+        Guarantee promise = new Promise(null, null, null);
+        assertThat(violationPaths(promise)).contains("guarantorName");
+    }
+
+    @Test
     void promiseWithAssets_isRejected() {
-        GuaranteeDto promise = new GuaranteeDto(GuaranteeType.PROMISE, "Jane Doe", oneAsset(), null);
+        Guarantee promise = new Promise("Jane Doe", oneAsset(), null);
         assertThat(violationPaths(promise)).contains("assets");
     }
 
     @Test
     void promiseWithBorrowerRating_isRejected() {
-        GuaranteeDto promise = new GuaranteeDto(GuaranteeType.PROMISE, "Jane Doe", null, "BBB");
+        Guarantee promise = new Promise("Jane Doe", null, "BBB");
         assertThat(violationPaths(promise)).contains("borrowerRating");
     }
 
-    @Test
-    void promiseWithoutGuarantorName_isRejected() {
-        GuaranteeDto promise = new GuaranteeDto(GuaranteeType.PROMISE, null, null, null);
-        assertThat(violationPaths(promise)).contains("guarantorName");
-    }
-
-    // ----- Default (ungrouped) constraints still fire (gotcha #1) -----
+    // ----- Parent's own default constraint still fires on both children -----
 
     @Test
-    void missingType_hasNoGuarantorNameRuleButTypeItselfIsRejected() {
-        // guarantorName's rules live in group-bound constraints; with no type the
-        // provider adds neither group, so only the default @NotNull on type fires.
-        GuaranteeDto noType = new GuaranteeDto(null, "Anyone", null, null);
-        assertThat(violationPaths(noType)).contains("type");
+    void missingType_isRejected() {
+        Guarantee promise = new Promise("Jane Doe", null, null);
+        promise.setType(null);
+        assertThat(violationPaths(promise)).contains("type");
     }
 }
