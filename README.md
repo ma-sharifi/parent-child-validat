@@ -11,6 +11,65 @@ you put opposite constraints (`@NotNull` and `@Null`) on the same field, each
 bound to a different validation group, and a provider decides at runtime — based
 on the object's own state — which group is active.
 
+There are **two worked examples** in this repo:
+
+1. **Guarantee → Collateral / Promise** (`GuaranteeDto`) — the clearest one. Two
+   named children of a loan guarantee, discriminated by an enum `type`.
+2. **CoverType → parent / child** (`CoverTypeDto`) — the original, discriminated
+   by a boolean flag.
+
+Both use the identical `@GroupSequenceProvider` mechanism.
+
+## Example 1 — Guarantee: Collateral vs. Promise
+
+A loan **Guarantee** is one of two children, chosen by its `type`:
+
+| Field | `COLLATERAL` (child) | `PROMISE` (child) |
+|-------|----------------------|-------------------|
+| `type` | required | required |
+| `guarantorName` | required | required |
+| `assets` (list) | **required, non-empty** | **must be null** |
+| `borrowerRating` | **required** | **must be null** |
+
+```
+                 GuaranteeDto (single class)
+                 ├─ type            @NotNull                    (always)
+                 ├─ guarantorName   @NotBlank                   (always)
+                 ├─ assets          @NotEmpty(CollateralChecks) @Null(PromiseChecks)
+                 └─ borrowerRating  @NotNull(CollateralChecks)  @Null(PromiseChecks)
+                              │
+        GuaranteeSequenceProvider.getValidationGroups(dto)
+                              │
+        ┌─────────────────────┴─────────────────────┐
+   type == COLLATERAL                          type == PROMISE
+   → [GuaranteeDto, CollateralChecks]          → [GuaranteeDto, PromiseChecks]
+   → assets & borrowerRating REQUIRED          → assets & borrowerRating must be NULL
+```
+
+`assets` is a `List<AssetDto>` carrying a cascaded `@Valid`, so each pledged
+asset's own constraints are checked too — but only for a collateral, since a
+promise's list must be null. Try it:
+
+```bash
+# Valid collateral -> 201
+curl -s -XPOST localhost:8080/guarantees -H 'Content-Type: application/json' -d '{
+  "type":"COLLATERAL","guarantorName":"Acme Ltd",
+  "assets":[{"description":"Warehouse #4","estimatedValue":250000}],
+  "borrowerRating":"BBB"}'
+
+# Valid promise -> 201
+curl -s -XPOST localhost:8080/guarantees -H 'Content-Type: application/json' -d '{
+  "type":"PROMISE","guarantorName":"Jane Doe","assets":null,"borrowerRating":null}'
+
+# Promise carrying assets/rating -> 400 with both fields flagged
+curl -s -XPOST localhost:8080/guarantees -H 'Content-Type: application/json' -d '{
+  "type":"PROMISE","guarantorName":"Jane Doe",
+  "assets":[{"description":"Warehouse #4","estimatedValue":250000}],
+  "borrowerRating":"BBB"}'
+```
+
+## Example 2 — CoverType parent/child
+
 ## The idea in one picture
 
 ```
@@ -36,11 +95,15 @@ inherits its limit, so it must *not* carry one of its own.
 
 | File | Role |
 |------|------|
-| `validation/ParentChecks.java`, `validation/ChildChecks.java` | Empty marker interfaces used as validation-group labels. |
-| `dto/CoverTypeDto.java` | The single DTO. Same fields carry opposite constraints bound to different groups. Annotated `@GroupSequenceProvider(...)`. |
-| `validation/CoverTypeSequenceProvider.java` | Reads the object's state and returns the groups to activate. |
-| `web/CoverTypeController.java` | Uses plain `@Valid` — no group is named anywhere. |
-| `web/ValidationExceptionHandler.java` | Turns a failed `@Valid` into a clean 400 JSON body. |
+| `validation/CollateralChecks.java`, `validation/PromiseChecks.java` | Marker groups for the Guarantee example. |
+| `dto/GuaranteeDto.java`, `dto/GuaranteeType.java`, `dto/AssetDto.java` | The Guarantee DTO (`@GroupSequenceProvider(...)`), its discriminator enum, and the nested asset (cascaded `@Valid`). |
+| `validation/GuaranteeSequenceProvider.java` | Reads `type` and activates `CollateralChecks` or `PromiseChecks`. |
+| `web/GuaranteeController.java` | Plain `@Valid` — no group named. |
+| `validation/ParentChecks.java`, `validation/ChildChecks.java` | Marker groups for the CoverType example. |
+| `dto/CoverTypeDto.java` | The CoverType DTO. Same fields carry opposite constraints bound to different groups. |
+| `validation/CoverTypeSequenceProvider.java` | Reads the boolean flag and returns the groups to activate. |
+| `web/CoverTypeController.java` | Plain `@Valid` — no group named. |
+| `web/ValidationExceptionHandler.java` | Turns a failed `@Valid` into a clean 400 JSON body (shared by both). |
 
 ## The provider — the whole trick
 
