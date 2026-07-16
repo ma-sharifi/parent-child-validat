@@ -27,14 +27,14 @@ A loan **Guarantee** is one of two children, chosen by its `type`:
 | Field | `COLLATERAL` (child) | `PROMISE` (child) |
 |-------|----------------------|-------------------|
 | `type` | required | required |
-| `guarantorName` | required | required |
+| `guarantorName` | **must be null** | **required** |
 | `assets` (list) | **required, non-empty** | **must be null** |
 | `borrowerRating` | **required** | **must be null** |
 
 ```
                  GuaranteeDto (single class)
                  ├─ type            @NotNull                    (always)
-                 ├─ guarantorName   @NotBlank                   (always)
+                 ├─ guarantorName   @Null(CollateralChecks)     @NotBlank(PromiseChecks)
                  ├─ assets          @NotEmpty(CollateralChecks) @Null(PromiseChecks)
                  └─ borrowerRating  @NotNull(CollateralChecks)  @Null(PromiseChecks)
                               │
@@ -43,7 +43,8 @@ A loan **Guarantee** is one of two children, chosen by its `type`:
         ┌─────────────────────┴─────────────────────┐
    type == COLLATERAL                          type == PROMISE
    → [GuaranteeDto, CollateralChecks]          → [GuaranteeDto, PromiseChecks]
-   → assets & borrowerRating REQUIRED          → assets & borrowerRating must be NULL
+   → assets & borrowerRating REQUIRED          → guarantorName REQUIRED
+   → guarantorName must be NULL                → assets & borrowerRating must be NULL
 ```
 
 `assets` is a `List<AssetDto>` carrying a cascaded `@Valid`, so each pledged
@@ -51,9 +52,9 @@ asset's own constraints are checked too — but only for a collateral, since a
 promise's list must be null. Try it:
 
 ```bash
-# Valid collateral -> 201
+# Valid collateral -> 201  (guarantorName must be null; it's backed by assets)
 curl -s -XPOST localhost:8080/guarantees -H 'Content-Type: application/json' -d '{
-  "type":"COLLATERAL","guarantorName":"Acme Ltd",
+  "type":"COLLATERAL","guarantorName":null,
   "assets":[{"description":"Warehouse #4","estimatedValue":250000}],
   "borrowerRating":"BBB"}'
 

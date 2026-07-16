@@ -30,7 +30,7 @@ class GuaranteeControllerTest {
         String body = """
                 {
                   "type": "COLLATERAL",
-                  "guarantorName": "Acme Ltd",
+                  "guarantorName": null,
                   "assets": [ { "description": "Warehouse #4", "estimatedValue": 250000 } ],
                   "borrowerRating": "BBB"
                 }
@@ -51,7 +51,7 @@ class GuaranteeControllerTest {
     @Test
     void collateralMissingAssetsAndRatingIsRejected() throws Exception {
         String body = """
-                { "type": "COLLATERAL", "guarantorName": "Acme Ltd", "assets": null, "borrowerRating": null }
+                { "type": "COLLATERAL", "guarantorName": null, "assets": null, "borrowerRating": null }
                 """;
         mockMvc.perform(post("/guarantees").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest())
@@ -73,5 +73,30 @@ class GuaranteeControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.assets").exists())
                 .andExpect(jsonPath("$.errors.borrowerRating").exists());
+    }
+
+    @Test
+    void collateralCarryingGuarantorNameIsRejected() throws Exception {
+        String body = """
+                {
+                  "type": "COLLATERAL",
+                  "guarantorName": "Acme Ltd",
+                  "assets": [ { "description": "Warehouse #4", "estimatedValue": 250000 } ],
+                  "borrowerRating": "BBB"
+                }
+                """;
+        mockMvc.perform(post("/guarantees").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.guarantorName").exists());
+    }
+
+    @Test
+    void promiseMissingGuarantorNameIsRejected() throws Exception {
+        String body = """
+                { "type": "PROMISE", "guarantorName": null, "assets": null, "borrowerRating": null }
+                """;
+        mockMvc.perform(post("/guarantees").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.guarantorName").exists());
     }
 }

@@ -54,25 +54,32 @@ class GuaranteeValidationTest {
 
     @Test
     void validCollateral_hasNoViolations() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "Acme Ltd", oneAsset(), "BBB");
+        // A collateral leans on assets, so guarantorName must be null.
+        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, oneAsset(), "BBB");
         assertThat(violationPaths(collateral)).isEmpty();
     }
 
     @Test
+    void collateralWithGuarantorName_isRejected() {
+        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "Acme Ltd", oneAsset(), "BBB");
+        assertThat(violationPaths(collateral)).contains("guarantorName");
+    }
+
+    @Test
     void collateralWithoutAssets_isRejected() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "Acme Ltd", null, "BBB");
+        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, null, "BBB");
         assertThat(violationPaths(collateral)).contains("assets");
     }
 
     @Test
     void collateralWithEmptyAssets_isRejected() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "Acme Ltd", List.of(), "BBB");
+        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, List.of(), "BBB");
         assertThat(violationPaths(collateral)).contains("assets");
     }
 
     @Test
     void collateralWithoutBorrowerRating_isRejected() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "Acme Ltd", oneAsset(), null);
+        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, oneAsset(), null);
         assertThat(violationPaths(collateral)).contains("borrowerRating");
     }
 
@@ -80,7 +87,7 @@ class GuaranteeValidationTest {
     void collateralWithInvalidNestedAsset_cascadesAndIsRejected() {
         // Blank description + non-positive value: cascaded @Valid must catch it.
         List<AssetDto> bad = List.of(new AssetDto("  ", new BigDecimal("-1")));
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "Acme Ltd", bad, "BBB");
+        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, null, bad, "BBB");
         Set<String> paths = violationPaths(collateral);
         assertThat(paths).contains("assets[0].description", "assets[0].estimatedValue");
     }
@@ -105,19 +112,19 @@ class GuaranteeValidationTest {
         assertThat(violationPaths(promise)).contains("borrowerRating");
     }
 
-    // ----- Default (ungrouped) constraints still fire (gotcha #1) -----
-
     @Test
-    void blankGuarantorName_isRejectedForBothTypes() {
-        GuaranteeDto collateral = new GuaranteeDto(GuaranteeType.COLLATERAL, "  ", oneAsset(), "BBB");
-        GuaranteeDto promise = new GuaranteeDto(GuaranteeType.PROMISE, "  ", null, null);
-        assertThat(violationPaths(collateral)).contains("guarantorName");
+    void promiseWithoutGuarantorName_isRejected() {
+        GuaranteeDto promise = new GuaranteeDto(GuaranteeType.PROMISE, null, null, null);
         assertThat(violationPaths(promise)).contains("guarantorName");
     }
 
+    // ----- Default (ungrouped) constraints still fire (gotcha #1) -----
+
     @Test
-    void missingType_isRejected() {
-        GuaranteeDto noType = new GuaranteeDto(null, "Acme Ltd", null, null);
+    void missingType_hasNoGuarantorNameRuleButTypeItselfIsRejected() {
+        // guarantorName's rules live in group-bound constraints; with no type the
+        // provider adds neither group, so only the default @NotNull on type fires.
+        GuaranteeDto noType = new GuaranteeDto(null, "Anyone", null, null);
         assertThat(violationPaths(noType)).contains("type");
     }
 }

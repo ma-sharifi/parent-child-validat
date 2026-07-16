@@ -34,8 +34,9 @@ public class GuaranteeDto {
     @NotNull(message = "type is required")
     private GuaranteeType type;
 
-    /** Always required, regardless of type. Default (ungrouped) constraint. */
-    @NotBlank(message = "guarantorName is required")
+    /** A promise leans on the guarantor's name; a collateral leans on assets, so it must be null. */
+    @NotBlank(groups = PromiseChecks.class, message = "guarantorName is required for a PROMISE guarantee")
+    @Null(groups = CollateralChecks.class, message = "guarantorName must be null for a COLLATERAL guarantee")
     private String guarantorName;
 
     /**
